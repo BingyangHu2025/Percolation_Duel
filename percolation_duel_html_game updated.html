@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Percolation Duel</title>
+<style>
+  :root{
+    --cell: 28px;
+    --cols: 21; /* x = 0..20 */
+    --rows: 11; /* y = 0..10 */
+  }
+  body{font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; margin:0; background:#0b1020; color:#e9edf8}
+  header{padding:20px 16px 8px; border-bottom:1px solid #1e2746; background:linear-gradient(180deg, #0e1530, #0b1020)}
+  h1{margin:0; font-size: clamp(20px, 3vw, 32px)}
+  .wrap{display:grid; grid-template-columns: 1fr 380px; gap:18px; padding:16px; align-items:start}
+  @media (max-width: 980px){ .wrap{grid-template-columns: 1fr} }
+
+  /* Grid board */
+  .board{position:relative; width: calc(var(--cell) * var(--cols)); height: calc(var(--cell) * var(--rows)); border:2px solid #2c3b6e; border-radius:10px; overflow:hidden; background:#0f1738; box-shadow: 0 10px 30px rgba(0,0,0,.35)}
+  .cells{display:grid; grid-template-columns: repeat(var(--cols), var(--cell)); grid-template-rows: repeat(var(--rows), var(--cell));}
+  .cell{width: var(--cell); height: var(--cell); box-sizing:border-box; border-right:1px solid rgba(255,255,255,.06); border-bottom:1px solid rgba(255,255,255,.06)}
+  .cell.top{background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,0))}
+  .cell.bottom{background: linear-gradient(0deg, rgba(255,255,255,.06), rgba(255,255,255,0))}
+  .cell.middle{background: rgba(255,255,255,0.02)}
+  .axis{position:absolute; inset:0; pointer-events:none}
+  .axis .tick{position:absolute; font-size:11px; color:#9fb0ff; opacity:.85}
+  .axis .tick::after{content:""; position:absolute; background:#9fb0ff; opacity:.5}
+  .axis .tick.x::after{width:1px; height:6px; top:-6px; left:50%}
+  .axis .tick.y::after{height:1px; width:6px; left:-6px; top:50%}
+
+  /* Start edge highlight & target */
+  .start-edge{position:absolute; left:0; top:0; width: var(--cell); height:100%; background: repeating-linear-gradient( 90deg, rgba(255,255,255,.04), rgba(255,255,255,.04) 4px, rgba(255,255,255,0) 4px, rgba(255,255,255,0) 8px ); outline: 2px dashed rgba(255,255,255,.25); outline-offset:-2px; pointer-events:none}
+  .target{position:absolute; width:var(--cell); height:var(--cell); border-radius:8px; background:#183b18; border:2px solid #3ad63a; box-shadow: inset 0 0 0 2px rgba(58,214,58,.25), 0 0 12px rgba(58,214,58,.35); pointer-events:none}
+
+  /* Obstacles (site percolation open/closed) */
+  .obstacles{position:absolute; inset:0; pointer-events:none}
+  .obstacles .block{position:absolute; width:var(--cell); height:var(--cell); background: rgba(0,0,0,.35); outline:1px solid rgba(255,255,255,.05);}
+
+  /* Tokens */
+  .token{position:absolute; width:calc(var(--cell)*.8); height:calc(var(--cell)*.8); border-radius:50%; transform: translate(-50%, -50%); display:grid; place-items:center; font-weight:700; color:#0b1020; text-shadow:none}
+  .token.red{background:#ff6b6b; box-shadow:0 6px 18px rgba(255,107,107,.45)}
+  .token.blue{background:#6bb7ff; box-shadow:0 6px 18px rgba(107,183,255,.45)}
+  .pulse{animation:pulse 1.1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.0)}50%{box-shadow:0 0 0 8px rgba(255,255,255,.08)}}
+
+  /* Sidebar */
+  .panel{background:#0f1738; border:1px solid #24346a; border-radius:12px; padding:14px 14px; box-shadow:0 10px 24px rgba(0,0,0,.35)}
+  .panel h2{margin:.2rem 0 .8rem; font-size:18px}
+  .row{display:flex; gap:8px; flex-wrap:wrap}
+  .btn{appearance:none; border:none; padding:10px 14px; border-radius:10px; cursor:pointer; background:#1a2a5a; color:#e9edf8; font-weight:600; letter-spacing:.25px; box-shadow: 0 8px 18px rgba(0,0,0,.25); transition: transform .06s ease, background .2s}
+  .btn:hover{transform: translateY(-1px); background:#20326b}
+  .btn:disabled{opacity:.5; cursor:not-allowed}
+  .die{width:52px; height:52px; border-radius:12px; border:2px solid #4c5fb4; display:grid; place-items:center; font-size:24px; font-weight:800; background:#111a3d; color:#b9c6ff}
+  .legend{display:flex; gap:8px; align-items:center; font-size:12px; color:#cbd6ff}
+  .swatch{width:12px; height:12px; border-radius:50%}
+  .log{height:160px; overflow:auto; background:#0c1230; border:1px solid #202e61; border-radius:8px; padding:8px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px}
+  .small{font-size:12px; color:#b9c6ff}
+  .notice{font-size:13px; color:#9fb0ff; margin:8px 0}
+  a{color:#84a9ff}
+
+  /* Footer math blurb */
+  .footer{padding: 12px 16px 28px; max-width: 980px; margin: 8px auto 24px; color:#dbe4ff}
+  .footer h3{margin:0 0 6px}
+  .card{background:#0f1738; border:1px solid #24346a; border-radius:12px; padding:14px; box-shadow:0 10px 24px rgba(0,0,0,.35)}
+
+  /* Heatmap */
+  .hm-wrap{display:flex; gap:12px; align-items:flex-start}
+  canvas#heatmap{border:1px solid #24346a; border-radius:8px; background:#0c1230}
+  .table-mini{border-collapse:collapse; font-size:12px}
+  .table-mini td,.table-mini th{border:1px solid #28407f; padding:4px 6px}
+</style>
+</head>
+<body>
+  <header>
+    <h1>Percolation Duel</h1>
+    <div class="notice">Race on a 21×11 lattice. Start anywhere on the left edge (x = 0). First token to reach the target (20, 5) wins. Now with Bernoulli site percolation obstacles and a start‑position win‑rate heatmap.</div>
+  </header>
+
+  <main class="wrap">
+    <section>
+      <div id="board" class="board" aria-label="21 by 11 lattice board">
+        <div id="cells" class="cells" role="grid" aria-rowcount="11" aria-colcount="21"></div>
+        <div class="start-edge" aria-hidden="true"></div>
+        <div id="axis" class="axis" aria-hidden="true"></div>
+        <div id="target" class="target" title="Target (20, 5)"></div>
+        <div id="obstacles" class="obstacles" aria-hidden="true"></div>
+        <div id="token-red" class="token red" title="Red"></div>
+        <div id="token-blue" class="token blue"></div>
+      </div>
+      <p class="small" style="margin-top:8px">Coords: x from 0→20 (left→right), y from 0→10 (bottom→top). Top edge y=10; bottom edge y=0; middle 1–9. Dark squares are <em>blocked</em> (closed sites); tokens cannot enter them.</p>
+
+      <div class="panel" style="margin-top:12px">
+        <h2>Percolation & Simulation</h2>
+        <div class="row" style="align-items:center; margin-bottom:8px">
+          <label class="small">Open probability p: <span id="pLabel">0.90</span></label>
+          <input id="pRange" type="range" min="0" max="1" step="0.01" value="0.90" style="width:200px"/>
+          <button id="btnRegen" class="btn">Regenerate field</button>
+          <label class="small" style="margin-left:6px">Sparsify: <span id="sLabel">0.60</span></label>
+          <input id="sRange" type="range" min="0" max="1" step="0.01" value="0.60" style="width:170px"/>
+          <label class="small"><input id="cbShowObs" type="checkbox" checked /> Show obstacles</label>
+        </div>
+        <div class="row" style="align-items:center; margin-bottom:8px">
+          <label class="small">Trials per start:</label>
+          <input id="trialInput" type="number" value="500" min="10" max="20000" style="width:90px; padding:6px; border-radius:8px; border:1px solid #24346a; background:#0c1230; color:#e9edf8"/>
+          <label class="small">Max steps per trial:</label>
+          <input id="stepCap" type="number" value="400" min="50" max="5000" style="width:90px; padding:6px; border-radius:8px; border:1px solid #24346a; background:#0c1230; color:#e9edf8"/>
+          <button id="btnSim" class="btn">Run simulations</button>
+          <button id="btnSelfTest" class="btn" title="Run built‑in checks">Run self‑tests</button>
+        </div>
+        <div class="hm-wrap">
+          <canvas id="heatmap" width="120" height="330" title="Heatmap: success rate by start y (0 bottom → 10 top)"></canvas>
+          <table class="table-mini" id="hmTable"></table>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <h2>How to Play</h2>
+      <ol class="small" style="margin:0 0 10px 18px; line-height:1.5">
+        <li><strong>Pick starts:</strong> Red chooses any open cell on the left edge (x=0); then Blue chooses a (different) open left‑edge cell.</li>
+        <li><strong>Take turns:</strong> Red moves first, then Blue. Each move uses a fair six‑sided die.</li>
+        <li><strong>Movement rules (by vertical band):</strong>
+          <ul style="margin:4px 0 0 16px">
+            <li><em>Top edge</em> (y=10): 1–3 → Right, 4–6 → Down.</li>
+            <li><em>Bottom edge</em> (y=0): 1–3 → Right, 4–6 → Up.</li>
+            <li><em>Middle</em> (1≤y≤9): 1–2 → Up, 3–4 → Right, 5–6 → Down.</li>
+          </ul>
+          If a move would go outside the board or into a blocked site, reroll for that turn (with a safety limit).
+        </li>
+        <li><strong>Goal:</strong> The first token to land on (20,5) wins.</li>
+      </ol>
+
+      <div class="legend" style="margin:.4rem 0 .8rem">
+        <span class="swatch" style="background:#ff6b6b"></span> Red &nbsp;&nbsp;
+        <span class="swatch" style="background:#6bb7ff"></span> Blue
+      </div>
+
+      <div class="row" style="align-items:center; margin-bottom:8px">
+        <button id="btnStep" class="btn" disabled>Step (next move)</button>
+        <button id="btnAuto" class="btn" disabled>Auto‑play</button>
+        <button id="btnStop" class="btn" disabled>Stop</button>
+        <div id="die" class="die" aria-live="polite" title="Die">–</div>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <button id="btnReset" class="btn">Reset</button>
+        <button id="btnCenterRed" class="btn">Red @ (0,5)</button>
+        <button id="btnCenterBlue" class="btn">Blue @ (0,5)</button>
+      </div>
+
+      <div class="small" style="margin:6px 0 4px"><strong>Log</strong></div>
+      <div id="log" class="log" role="log" aria-live="polite"></div>
+    </aside>
+  </main>
+
+  <section class="footer">
+    <div class="card">
+      <h3>Math behind the game (very short & friendly)</h3>
+      <p>
+        <em>Percolation</em> studies how things spread through a grid — like water in a sponge or a signal in a network. Here we use a simple version: each cell is independently either <strong>open</strong> with probability <em>p</em> (you may step on it) or <strong>blocked</strong> with probability 1−<em>p</em>. As <em>p</em> increases, there is often a <strong>critical probability</strong> where long‑range connections suddenly become likely.
+      </p>
+      <p>
+        In <strong>Percolation Duel</strong>, movement is random but biased to the right. Obstacles make some paths impossible, so choosing a smart start matters. The heatmap shows, for each left‑edge starting height, how often a random walker reaches (20,5) under the current field and rules.
+      </p>
+      <p class="small" style="opacity:.9">
+        Curious to go further? Try exploring percolation on rectangles and wedges, crossing probabilities, and phase transitions in modern research.
+      </p>
+    </div>
+  </section>
+
+<script>
+(function(){
+  const CELL = 28;
+  const COLS = 21; // x: 0..20
+  const ROWS = 11; // y: 0..10
+  const target = {x:20, y:5};
+
+  const cellsEl = document.getElementById('cells');
+  const axisEl = document.getElementById('axis');
+  const boardEl = document.getElementById('board');
+  const tokenRed = document.getElementById('token-red');
+  const tokenBlue = document.getElementById('token-blue');
+  const targetEl = document.getElementById('target');
+  const dieEl = document.getElementById('die');
+  const logEl = document.getElementById('log');
+  const btnStep = document.getElementById('btnStep');
+  const btnAuto = document.getElementById('btnAuto');
+  const btnStop = document.getElementById('btnStop');
+  const btnReset = document.getElementById('btnReset');
+  const btnCenterRed = document.getElementById('btnCenterRed');
+  const btnCenterBlue = document.getElementById('btnCenterBlue');
+
+  // Percolation controls
+  const pRange = document.getElementById('pRange');
+  const pLabel = document.getElementById('pLabel');
+  const btnRegen = document.getElementById('btnRegen');
+  const cbShowObs = document.getElementById('cbShowObs');
+  const sRange = document.getElementById('sRange');
+  const sLabel = document.getElementById('sLabel');
+
+  // Simulation controls
+  const trialInput = document.getElementById('trialInput');
+  const stepCapInput = document.getElementById('stepCap');
+  const btnSim = document.getElementById('btnSim');
+  const btnSelfTest = document.getElementById('btnSelfTest');
+  const hmCanvas = document.getElementById('heatmap');
+  const hmTable = document.getElementById('hmTable');
+
+  // Obstacles (site percolation): true=open, false=blocked
+  let openSite = create2D(COLS, ROWS, true);
+
+  let red = {x:null, y:null};
+  let blue = {x:null, y:null};
+  let turn = 'red';
+  let autoTimer = null;
+  let picking = 'red';
+
+  function create2D(w,h, val){
+    const a = new Array(h);
+    for(let y=0;y<h;y++){ a[y] = new Array(w).fill(val); }
+    return a;
+  }
+
+  function log(msg){
+    const time = new Date().toLocaleTimeString();
+    logEl.innerHTML += `[${time}] ${msg}<br/>`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function xyToPixel(x,y){
+    const px = x * CELL + CELL/2;
+    const py = (ROWS-1 - y) * CELL + CELL/2;
+    return {left:px, top:py};
+  }
+
+  function placeToken(el, x, y){
+    const p = xyToPixel(x,y);
+    el.style.left = p.left + 'px';
+    el.style.top = p.top + 'px';
+  }
+
+  function drawTarget(){
+    const p = xyToPixel(target.x, target.y);
+    targetEl.style.left = (p.left - CELL/2) + 'px';
+    targetEl.style.top  = (p.top  - CELL/2) + 'px';
+  }
+
+  function buildGrid(){
+    cellsEl.innerHTML = '';
+    for(let row=ROWS-1; row>=0; row--){
+      for(let col=0; col<COLS; col++){
+        const y = row; const x = col;
+        const div = document.createElement('div');
+        div.className = 'cell ' + (y===10? 'top' : y===0? 'bottom' : 'middle');
+        div.dataset.x = x; div.dataset.y = y;
+        div.addEventListener('click', ()=>{
+          if(x!==0 || !picking) return;
+          if(!isOpen(x,y)) { log('That start is blocked; pick an open site.'); return; }
+          if(picking==='red'){
+            red = {x:0, y};
+            placeToken(tokenRed, red.x, red.y); tokenRed.title = `Red (${red.x}, ${red.y})`;
+            tokenRed.textContent = 'R'; tokenRed.classList.add('pulse');
+            picking='blue';
+            log(`Red picked start (0, ${y}). Blue to choose.`);
+          } else if(picking==='blue'){
+            if(red.x===0 && red.y===y){ log('That start is taken. Choose a different cell.'); return; }
+            blue = {x:0, y};
+            placeToken(tokenBlue, blue.x, blue.y); tokenBlue.title = `Blue (${blue.x}, ${blue.y})`;
+            tokenBlue.textContent = 'B'; tokenBlue.classList.add('pulse');
+            picking=null;
+            enablePlay();
+            log(`Blue picked start (0, ${y}). Game ready. Red goes first.`);
+          }
+        });
+        cellsEl.appendChild(div);
+      }
+    }
+  }
+
+  function drawAxes(){
+    axisEl.innerHTML = '';
+    for(let x=0; x<COLS; x++){
+      const t = document.createElement('div');
+      t.className = 'tick x';
+      t.style.left = (x*CELL + CELL/2 - 1) + 'px';
+      t.style.bottom = '-18px';
+      t.textContent = x;
+      axisEl.appendChild(t);
+    }
+    for(let y=0; y<ROWS; y++){
+      const t = document.createElement('div');
+      t.className = 'tick y';
+      t.style.left = '-22px';
+      t.style.top = ((ROWS-1 - y)*CELL + CELL/2 - 8) + 'px';
+      t.textContent = y;
+      axisEl.appendChild(t);
+    }
+  }
+
+  function enablePlay(){
+    btnStep.disabled = false;
+    btnAuto.disabled = false;
+    btnStop.disabled = true;
+    tokenRed.classList.remove('pulse');
+    tokenBlue.classList.remove('pulse');
+  }
+
+  function reset(all=true){
+    if(autoTimer){ clearInterval(autoTimer); autoTimer=null; }
+    dieEl.textContent = '–';
+    turn = 'red';
+    picking = 'red';
+    btnStep.disabled = true; btnAuto.disabled = true; btnStop.disabled = true;
+    if(all){ logEl.innerHTML = ''; }
+    tokenRed.textContent = ''; tokenBlue.textContent='';
+    red = {x:null, y:null}; blue = {x:null, y:null};
+    tokenRed.style.left='-1000px'; tokenBlue.style.left='-1000px';
+    tokenRed.classList.remove('pulse'); tokenBlue.classList.remove('pulse');
+    log('Pick starts on the left edge: Red first, then Blue.');
+  }
+
+  function rollDie(){
+    const n = 1 + Math.floor(Math.random()*6);
+    dieEl.textContent = n;
+    dieEl.animate([{transform:'scale(1)'},{transform:'scale(1.2)'},{transform:'scale(1)'}], {duration:180});
+    return n;
+  }
+
+  function isOpen(x,y){
+    if(x<0||x>=COLS||y<0||y>=ROWS) return false;
+    return openSite[y][x];
+  }
+
+  function decideMove(x,y,die){
+    if(y===10){ return (die<=3) ? {dx:+1, dy:0} : {dx:0, dy:-1}; }
+    else if(y===0){ return (die<=3) ? {dx:+1, dy:0} : {dx:0, dy:+1}; }
+    else { if(die<=2) return {dx:0, dy:+1}; if(die<=4) return {dx:+1, dy:0}; return {dx:0, dy:-1}; }
+  }
+
+  function stepOne(){
+    if(red.x===null || blue.x===null){ log('Both players must choose starts.'); return; }
+    const player = (turn==='red') ? red : blue;
+    const label = (turn==='red') ? 'Red' : 'Blue';
+    let moved = false; let guard=0;
+    while(!moved && guard<32){
+      guard++;
+      const n = rollDie();
+      const {dx, dy} = decideMove(player.x, player.y, n);
+      const nx = player.x + dx; const ny = player.y + dy;
+      if(nx<0 || nx>=COLS || ny<0 || ny>=ROWS) continue; // reroll
+      if(!isOpen(nx,ny)) continue; // blocked → reroll
+      player.x = nx; player.y = ny; moved = true;
+      const el = (turn==='red') ? tokenRed : tokenBlue;
+      placeToken(el, player.x, player.y);
+      log(`${label} rolled ${n} → moved to (${player.x}, ${player.y}).`);
+    }
+    if(!moved){ log(`${label} could not move (boundary/blocked).`); }
+    if(player.x===target.x && player.y===target.y){
+      log(`🎉 ${label} reaches (20, 5) and WINS!`);
+      btnStep.disabled = true; btnAuto.disabled = true; btnStop.disabled = true;
+      if(autoTimer){ clearInterval(autoTimer); autoTimer=null; }
+      return;
+    }
+    turn = (turn==='red') ? 'blue' : 'red';
+  }
+
+  // Generate Bernoulli site percolation field
+  function regenerateField(pOpen){
+    for(let y=0;y<ROWS;y++){
+      for(let x=0;x<COLS;x++){
+        openSite[y][x] = (Math.random() < pOpen);
+      }
+    }
+    // Sparsify step: flip a fraction of blocked sites back to open to avoid clustering
+    const s = +sRange.value; // 0..1, higher = sparser
+    for(let y=0;y<ROWS;y++){
+      for(let x=0;x<COLS;x++){
+        if(!openSite[y][x] && Math.random() < s){ openSite[y][x] = true; }
+      }
+    }
+    // Ensure left edge and target are open
+    for(let y=0;y<ROWS;y++){ openSite[y][0] = true; }
+    openSite[target.y][target.x] = true;
+    drawObstacles();
+  }
+
+  function drawObstacles(){
+    const obs = document.getElementById('obstacles');
+    obs.innerHTML = '';
+    if(!cbShowObs.checked) return;
+    for(let y=0;y<ROWS;y++){
+      for(let x=0;x<COLS;x++){
+        if(!openSite[y][x]){
+          const d = document.createElement('div');
+          const p = xyToPixel(x,y);
+          d.className = 'block';
+          d.style.left = (p.left - CELL/2) + 'px';
+          d.style.top = (p.top - CELL/2) + 'px';
+          obs.appendChild(d);
+        }
+      }
+    }
+  }
+
+  // Simulate a single random walk from (0, y0) under current field; returns true if hits target
+  function simulateSingle(y0, stepCap){
+    if(!isOpen(0,y0)) return false; // shouldn't happen
+    let x=0, y=y0;
+    for(let steps=0; steps<stepCap; steps++){
+      if(x===target.x && y===target.y) return true;
+      let moved=false; let guard=0;
+      while(!moved && guard<24){
+        guard++;
+        const die = 1 + Math.floor(Math.random()*6);
+        const mv = decideMove(x,y,die);
+        const nx = x + mv.dx, ny = y + mv.dy;
+        if(nx<0 || nx>=COLS || ny<0 || ny>=ROWS) continue;
+        if(!isOpen(nx,ny)) continue;
+        x=nx; y=ny; moved=true;
+      }
+      if(!moved){ continue; }
+    }
+    return (x===target.x && y===target.y);
+  }
+
+  function runHeatmap(){
+    const trials = Math.max(10, Math.min(20000, parseInt(trialInput.value||'500',10)));
+    const cap = Math.max(50, Math.min(5000, parseInt(stepCapInput.value||'400',10)));
+    const rates = [];
+    for(let y0=0;y0<ROWS;y0++){
+      let win=0;
+      for(let t=0;t<trials;t++){
+        if(simulateSingle(y0, cap)) win++;
+      }
+      rates[y0] = win / trials;
+    }
+    drawHeatmap(rates);
+    renderHmTable(rates);
+    log(`Simulation done: ${trials} trials per start, cap=${cap}.`);
+  }
+
+  function colorFor(p){
+    const clamp = v=>Math.max(0,Math.min(1,v));
+    p = clamp(p);
+    const r1=[196,67,51], r2=[221,201,74], r3=[58,214,58];
+    let c;
+    if(p<0.5){ const t=p/0.5; c=[r1[0]+(r2[0]-r1[0])*t, r1[1]+(r2[1]-r1[1])*t, r1[2]+(r2[2]-r1[2])*t]; }
+    else { const t=(p-0.5)/0.5; c=[r2[0]+(r3[0]-r2[0])*t, r2[1]+(r3[1]-r2[1])*t, r2[2]+(r3[2]-r2[2])*t]; }
+    return `rgb(${c.map(v=>Math.round(v)).join(',')})`;
+  }
+
+  function drawHeatmap(rates){
+    const ctx = hmCanvas.getContext('2d');
+    const w = hmCanvas.width, h = hmCanvas.height;
+    ctx.clearRect(0,0,w,h);
+    const band = h / ROWS;
+    for(let y=0;y<ROWS;y++){
+      const p = rates[y]||0;
+      ctx.fillStyle = colorFor(p);
+      const yBottom = h - (y+1)*band;
+      ctx.fillRect(0,yBottom,w,band-1);
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = '12px ui-monospace, monospace';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`y=${y}: ${(p*100).toFixed(0)}%`, 6, yBottom + band/2);
+    }
+  }
+
+  function renderHmTable(rates){
+    hmTable.innerHTML = '<tr><th>Start y</th><th>Success rate</th></tr>' +
+      rates.map((p,y)=>`<tr><td>${y}</td><td>${(p*100).toFixed(1)}%</td></tr>`).join('');
+  }
+
+  // ---- Built-in self tests (sanity checks) ----
+  function runSelfTests(){
+    let ok = true; const errs = [];
+    try{
+      // decideMove mapping tests
+      const T = (cond,msg)=>{ if(!cond){ ok=false; errs.push(msg); } };
+      T(JSON.stringify(decideMove(0,10,1))===JSON.stringify({dx:1,dy:0}), 'Top edge 1→right');
+      T(JSON.stringify(decideMove(0,10,6))===JSON.stringify({dx:0,dy:-1}), 'Top edge 6→down');
+      T(JSON.stringify(decideMove(0,0,4))===JSON.stringify({dx:0,dy:1}), 'Bottom 4→up');
+      T(JSON.stringify(decideMove(0,5,2))===JSON.stringify({dx:0,dy:1}), 'Middle 2→up');
+      T(JSON.stringify(decideMove(0,5,3))===JSON.stringify({dx:1,dy:0}), 'Middle 3→right');
+      T(JSON.stringify(decideMove(0,5,6))===JSON.stringify({dx:0,dy:-1}), 'Middle 6→down');
+
+      // Field generation guarantees
+      regenerateField(0.9);
+      for(let y=0;y<ROWS;y++){ T(openSite[y][0]===true, 'Left edge must be open'); }
+      T(openSite[target.y][target.x]===true, 'Target must be open');
+
+      // Simulation returns boolean and runs
+      const r = simulateSingle(5, 80);
+      T(typeof r==='boolean', 'simulateSingle returns boolean');
+
+    }catch(e){ ok=false; errs.push('Exception: '+e.message); }
+
+    if(ok){ log('✅ Self‑tests passed.'); }
+    else{ log('❌ Self‑tests FAILED: '+errs.join(' | ')); }
+  }
+
+  // Controls
+  btnStep.addEventListener('click', stepOne);
+  btnAuto.addEventListener('click', ()=>{
+    if(autoTimer) return; btnStop.disabled=false; btnAuto.disabled=true; btnStep.disabled=true;
+    autoTimer = setInterval(stepOne, 320);
+  });
+  btnStop.addEventListener('click', ()=>{
+    if(autoTimer){ clearInterval(autoTimer); autoTimer=null; }
+    btnStop.disabled=true; btnAuto.disabled=false; btnStep.disabled=false;
+  });
+  btnReset.addEventListener('click', ()=> reset());
+  btnCenterRed.addEventListener('click', ()=>{
+    if(picking!=='red') return; const y=5; if(!isOpen(0,y)){ log('Center start blocked. Regenerate or choose another.'); return; }
+    red={x:0,y}; placeToken(tokenRed,0,y); tokenRed.textContent='R'; tokenRed.classList.add('pulse'); picking='blue'; log('Red picked start (0, 5). Blue to choose.');
+  });
+  btnCenterBlue.addEventListener('click', ()=>{
+    if(picking!=='blue') return; const y=5; if(!isOpen(0,y)){ log('Center start blocked. Choose another.'); return; }
+    if(red.x===0 && red.y===5){ log('That start is taken. Choose a different cell.'); return; }
+    blue={x:0,y}; placeToken(tokenBlue,0,y); tokenBlue.textContent='B'; tokenBlue.classList.add('pulse'); picking=null; enablePlay(); log('Blue picked start (0, 5). Game ready. Red goes first.');
+  });
+
+  // Percolation UI
+  pRange.addEventListener('input', ()=>{ pLabel.textContent = (+pRange.value).toFixed(2); });
+  sRange.addEventListener('input', ()=>{ sLabel.textContent = (+sRange.value).toFixed(2); });
+  btnRegen.addEventListener('click', ()=>{ regenerateField(+pRange.value); log(`Field regenerated with p=${(+pRange.value).toFixed(2)} and sparsify=${(+sRange.value).toFixed(2)}.`); });
+  cbShowObs.addEventListener('change', ()=> drawObstacles());
+  btnSim.addEventListener('click', runHeatmap);
+  btnSelfTest.addEventListener('click', runSelfTests);
+
+  // Init
+  buildGrid();
+  drawAxes();
+  drawTarget();
+  reset(false);
+  regenerateField(+pRange.value);
+})();
+</script>
+</body>
+</html>
